@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vault Ledger Pro</title>
+    <style>
+        :root { --bg: #f1f5f9; --card: #ffffff; --primary: #1e293b; --accent: #3b82f6; --danger: #ef4444; --success: #10b981; }
+        body { font-family: -apple-system, system-ui, sans-serif; background: var(--bg); padding: 15px; max-width: 500px; margin: 0 auto; color: #334155; }
+        .card { background: var(--card); padding: 20px; border-radius: 16px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); margin-bottom: 15px; border: 1px solid #e2e8f0; }
+        .nav { display: flex; gap: 10px; margin-bottom: 20px; }
+        .nav button { flex: 1; background: #cbd5e1; color: #475569; padding: 12px; border-radius: 10px; font-weight: 700; border: none; cursor: pointer; }
+        .nav button.active { background: var(--primary); color: white; }
+        .unit-bal { font-size: 1.5rem; font-weight: 800; color: var(--primary); margin: 5px 0; }
+        button { border: none; cursor: pointer; font-weight: 600; border-radius: 10px; transition: 0.1s; }
+        .btn-main { background: var(--primary); color: white; width: 100%; padding: 12px; }
+        .btn-edit-sm { background: #f1f5f9; color: #64748b; padding: 4px 8px; font-size: 0.75rem; border-radius: 5px; }
+        input { width: 100%; padding: 12px; border: 1px solid #cbd5e1; border-radius: 10px; margin-bottom: 12px; box-sizing: border-box; }
+        .log-item { padding: 12px; border-bottom: 1px solid #f1f5f9; }
+        .amt-pos { color: var(--success); font-weight: 700; }
+        .amt-neg { color: var(--danger); font-weight: 700; }
+        .report-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+        .report-box { padding: 10px; border-radius: 10px; background: #f8fafc; text-align: center; border: 1px solid #e2e8f0; }
+        .modal { display:none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); align-items: center; justify-content: center; z-index: 100; padding: 20px; }
+        .modal-content { background: white; padding: 25px; border-radius: 20px; width: 100%; max-width: 350px; }
+    </style>
+</head>
+<body>
+
+    <div class="nav">
+        <button id="nav-dash" class="active" onclick="showPage('dash')">Dashboard</button>
+        <button id="nav-hist" onclick="showPage('hist')">History & Report</button>
+    </div>
+
+    <div id="page-dash">
+        <div class="card" style="background: var(--primary); color: white; text-align: center;">
+            <p style="margin:0; opacity: 0.7;">Current Total Balance</p>
+            <div id="total-display" style="font-size: 2.2rem; font-weight: 800;">$0.00</div>
+            <button onclick="openModal('income-modal')" style="background: var(--success); color: white; margin-top: 15px; width: 100%; padding: 12px;">+ Deposit Income</button>
+        </div>
+        <div id="units-container"></div>
+        <button class="btn-main" style="background: #64748b;" onclick="openAddModal()">+ New Storage Unit</button>
+    </div>
+
+    <div id="page-hist" style="display: none;">
+        <div class="card">
+            <h2 style="margin:0 0 10px 0; font-size: 1.1rem;">Monthly Report (This Month)</h2>
+            <div class="report-grid">
+                <div class="report-box"><small>Income</small><div id="rep-inc" class="amt-pos">$0</div></div>
+                <div class="report-box"><small>Expenses</small><div id="rep-exp" class="amt-neg">$0</div></div>
+            </div>
+        </div>
+        <div class="card">
+            <h2 style="margin:0 0 15px 0; font-size: 1.1rem;">Transaction History</h2>
+            <div id="history-container"></div>
+            <button class="btn-main" style="background: #fee2e2; color: var(--danger); margin-top: 20px;" onclick="fullReset()">⚠️ Full Factory Reset</button>
+        </div>
+    </div>
+
+    <div id="income-modal" class="modal"><div class="modal-content">
+        <h3>Input Income</h3>
+        <input type="number" id="income-amount" placeholder="Total Amount ($)" inputmode="decimal">
+        <button class="btn-main" onclick="processIncome()">Split & Store</button>
+        <button class="btn-main" style="background:#e2e8f0; color:#475569; margin-top:8px;" onclick="closeModals()">Cancel</button>
+    </div></div>
+
+    <div id="unit-modal" class="modal"><div class="modal-content">
+        <h3 id="modal-title">Unit Settings</h3>
+        <input type="text" id="unit-name" placeholder="Name">
+        <input type="number" id="unit-percent" placeholder="Allocation %">
+        <button class="btn-main" id="unit-save-btn">Save</button>
+        <button class="btn-main" style="background:#e2e8f0; color:#475569; margin-top:8px;" onclick="closeModals()">Cancel</button>
+        <p id="delete-btn" style="color:var(--danger); text-align:center; cursor:pointer; margin-top:15px; font-size:0.8rem;">Delete Unit Forever</p>
+    </div></div>
+
+    <script>
+        let data = JSON.parse(localStorage.getItem('vaultV4')) || { units: [], logs: [] };
+
+        function render() {
+            // Dashboard
+            const container = document.getElementById('units-container');
+            container.innerHTML = '';
+            let total = 0;
+            data.units.forEach((u, i) => {
+                total += u.balance;
+                container.innerHTML += `
+                    <div class="card">
+                        <div style="display:flex; justify-content:space-between;">
+                            <span style="font-weight:700;">${u.name} <small style="color:#64748b;">${u.percent}%</small></span>
+                            <button class="btn-edit-sm" onclick="openEditModal(${i})">Edit Unit</button>
+                        </div>
+                        <div class="unit-bal">$${u.balance.toFixed(2)}</div>
+                        <button class="btn-main" style="background:#fee2e2; color:var(--danger);" onclick="spend(${i})">Log Expense</button>
+                    </div>`;
+            });
+            document.getElementById('total-display').innerText = `$${total.toFixed(2)}`;
+
+            // History & Reports
+            const histContainer = document.getElementById('history-container');
+            histContainer.innerHTML = '';
+            let mInc = 0, mExp = 0;
+            const now = new Date();
+            
+            data.logs.slice().reverse().forEach((log, revIdx) => {
+                const i = data.logs.length - 1 - revIdx;
+                const logDate = new Date(log.timestamp);
+                
+                // Monthly Analytics
+                if (logDate.getMonth() === now.getMonth() && logDate.getFullYear() === now.getFullYear()) {
+                    if (log.type === 'income') mInc += log.amount;
+                    else mExp += log.amount;
+                }
+
+                histContainer.innerHTML += `
+                    <div class="log-item">
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <div>
+                                <div style="font-weight:600;">${log.type==='income' ? 'Income Split' : log.unit}</div>
+                                <div style="font-size:0.7rem; color:#94a3b8;">${logDate.toLocaleDateString()}</div>
+                            </div>
+                            <div style="text-align:right;">
+                                <div class="${log.type==='income'?'amt-pos':'amt-neg'}">${log.type==='income'?'+':'-'}$${log.amount.toFixed(2)}</div>
+                                <button class="btn-edit-sm" onclick="editLog(${i})">Edit Amt</button>
+                                <button class="btn-edit-sm" style="color:var(--danger)" onclick="deleteLog(${i})">×</button>
+                            </div>
+                        </div>
+                    </div>`;
+            });
+            document.getElementById('rep-inc').innerText = `$${mInc.toFixed(2)}`;
+            document.getElementById('rep-exp').innerText = `$${mExp.toFixed(2)}`;
+            localStorage.setItem('vaultV4', JSON.stringify(data));
+        }
+
+        function processIncome() {
+            const amt = parseFloat(document.getElementById('income-amount').value);
+            if (isNaN(amt) || amt <= 0) return;
+            data.units.forEach(u => u.balance += (amt * (u.percent / 100)));
+            data.logs.push({ type:'income', amount:amt, timestamp:Date.now() });
+            document.getElementById('income-amount').value = '';
+            closeModals(); render();
+        }
+
+        function spend(i) {
+            const amt = parseFloat(prompt(`Expense from ${data.units[i].name}:`));
+            if (isNaN(amt) || amt <= 0) return;
+            if (amt > data.units[i].balance) return alert("Insufficient funds!");
+            data.units[i].balance -= amt;
+            data.logs.push({ type:'expense', unit:data.units[i].name, amount:amt, timestamp:Date.now() });
+            render();
+        }
+
+        function editLog(i) {
+            const log = data.logs[i];
+            const newVal = parseFloat(prompt(`Change amount from $${log.amount} to:`, log.amount));
+            if (isNaN(newVal) || newVal < 0) return;
+
+            const diff = newVal - log.amount;
+            if (log.type === 'income') {
+                data.units.forEach(u => u.balance += (diff * (u.percent / 100)));
+            } else {
+                const unit = data.units.find(u => u.name === log.unit);
+                if (unit) {
+                    if (unit.balance < diff) return alert("Not enough funds in unit to make this change!");
+                    unit.balance -= diff;
+                }
+            }
+            log.amount = newVal;
+            render();
+        }
+
+        function deleteLog(i) {
+            if (!confirm("Delete and reverse this transaction?")) return;
+            const log = data.logs[i];
+            if (log.type === 'income') data.units.forEach(u => u.balance -= (log.amount * (u.percent / 100)));
+            else { const u = data.units.find(un => un.name === log.unit); if(u) u.balance += log.amount; }
+            data.logs.splice(i, 1);
+            render();
+        }
+
+        function showPage(p) {
+            document.getElementById('page-dash').style.display = p === 'dash' ? 'block' : 'none';
+            document.getElementById('page-hist').style.display = p === 'hist' ? 'block' : 'none';
+            document.getElementById('nav-dash').className = p === 'dash' ? 'active' : '';
+            document.getElementById('nav-hist').className = p === 'hist' ? 'active' : '';
+            render();
+        }
+
+        function fullReset() { if (confirm("DELETE EVERYTHING?")) { data={units:[], logs:[]}; render(); } }
+        function openModal(id) { document.getElementById(id).style.display='flex'; }
+        function closeModals() { document.querySelectorAll('.modal').forEach(m => m.style.display='none'); }
+        
+        function openEditModal(i) {
+            const u = data.units[i];
+            document.getElementById('unit-name').value = u.name;
+            document.getElementById('unit-percent').value = u.percent;
+            document.getElementById('unit-save-btn').onclick = () => {
+                u.name = document.getElementById('unit-name').value;
+                u.percent = parseFloat(document.getElementById('unit-percent').value);
+                closeModals(); render();
+            };
+            document.getElementById('delete-btn').onclick = () => { data.units.splice(i,1); closeModals(); render(); };
+            openModal('unit-modal');
+        }
+
+        function openAddModal() {
+            document.getElementById('unit-name').value = '';
+            document.getElementById('unit-percent').value = '';
+            document.getElementById('unit-save-btn').onclick = () => {
+                data.units.push({ name: document.getElementById('unit-name').value, percent: parseFloat(document.getElementById('unit-percent').value), balance:0 });
+                closeModals(); render();
+            };
+            document.getElementById('delete-btn').style.display = 'none';
+            openModal('unit-modal');
+        }
+
+        render();
+    </script>
+</body>
+</html>
