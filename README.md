@@ -2,6 +2,8 @@
 
 A personal finance management app built with Flutter. Organize and track your savings across multiple allocation units with automatic income splitting and expense logging.
 
+## https://www.paypal.com/ncp/payment/6ZWB8AZ97U77N
+
 ## Features
 
 - 💰 **Multi-Unit Allocation** - Create storage units with custom percentage allocations
